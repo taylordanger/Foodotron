@@ -63,8 +63,57 @@ export default function Home(){
   const mealResults=useMemo(()=>{if(!meal)return[];const combined:Ingredient[]=[];for(const entry of meal.recipes){const source=plan.recipes.find(r=>r.id===entry.recipeId);if(!source)continue;const multiplier=entry.servings/Math.max(1,source.baseServings);for(const sourceItem of source.ingredients){const amount=sourceItem.qty*multiplier;const existing=combined.find(x=>x.name.trim().toLowerCase()===sourceItem.name.trim().toLowerCase()&&convert(amount,sourceItem.unit,x.unit)!==null);if(existing){existing.qty+=convert(amount,sourceItem.unit,existing.unit)??0;const seen=new Set(existing.offers.map(o=>`${o.store}|${o.packageQty}|${o.packageUnit??existing.unit}|${o.price}`));for(const candidate of sourceItem.offers){const key=`${candidate.store}|${candidate.packageQty}|${candidate.packageUnit??sourceItem.unit}|${candidate.price}`;if(!seen.has(key)){existing.offers.push(candidate);seen.add(key)}}}else combined.push({...sourceItem,id:`meal-${sourceItem.id}`,qty:amount,offers:[...sourceItem.offers]})}}return combined.map(item=>{const choices=item.offers.map(o=>{const packageUnit=o.packageUnit??item.unit;const packageEquivalent=packageInRecipeUnits(item,o);if(!packageEquivalent||packageEquivalent<=0)return null;const packages=Math.ceil(item.qty/packageEquivalent);return{...o,packageUnit,packageEquivalent,packages,cost:packages*o.price,purchased:packages*packageEquivalent,waste:packages*packageEquivalent-item.qty}}).filter((o):o is NonNullable<typeof o>=>Boolean(o)).sort((a,b)=>a.cost-b.cost);return{item,required:item.qty,best:choices[0],choices}})},[meal,plan.recipes]);
   const mealTotal=mealResults.reduce((sum,row)=>sum+(row.best?.cost??0),0);
   const mealStores=useMemo(()=>{const map=new Map<string,{cost:number;rows:typeof mealResults}>();for(const row of mealResults){if(!row.best)continue;const group=map.get(row.best.store)??{cost:0,rows:[]};group.cost+=row.best.cost;group.rows.push(row);map.set(row.best.store,group)}return[...map.entries()].map(([store,value])=>({store,...value})).sort((a,b)=>b.cost-a.cost)},[mealResults]);
-  const tabletronUrl=useMemo(()=>{if(!meal)return"https://tabletron.lauren-taylor-sheppa.chatgpt.site";const packet={mealName:meal.name,date:meal.date,guests:meal.guests,total:mealTotal,recipes:meal.recipes.map(entry=>({name:plan.recipes.find(r=>r.id===entry.recipeId)?.name??"Recipe",servings:entry.servings})),stores:mealStores.map(group=>({store:group.store,cost:group.cost,items:group.rows.map(row=>({ingredient:row.item.name,needed:`${displayQty(row.required)} ${row.item.unit}`,package:`${row.best?.packageQty} ${row.best?.packageUnit}${row.best?.note?` · ${row.best.note}`:""}`,quantity:`${row.best?.packages} container${row.best?.packages===1?"":"s"}`,cost:row.best?.cost??0}))})),unpriced:mealResults.filter(row=>!row.best).map(row=>({ingredient:row.item.name,needed:`${displayQty(row.required)} ${row.item.unit}`}))};const target=tabletronEventId?`&tabletronEvent=${encodeURIComponent(tabletronEventId)}`:"";return`https://tabletron.lauren-taylor-sheppa.chatgpt.site/?foodotron=${encodeURIComponent(JSON.stringify(packet))}${target}`},[meal,mealResults,mealStores,mealTotal,plan.recipes,tabletronEventId]);
+  const tabletronUrl = useMemo(() => {
+  if (!meal) return "http://localhost:3000";
 
+  const packet = {
+    mealName: meal.name,
+    date: meal.date,
+    guests: meal.guests,
+    total: mealTotal,
+    recipes: meal.recipes.map((entry) => ({
+      name:
+        plan.recipes.find((r) => r.id === entry.recipeId)?.name ?? "Recipe",
+      servings: entry.servings,
+    })),
+    stores: mealStores.map((group) => ({
+      store: group.store,
+      cost: group.cost,
+      items: group.rows.map((row) => ({
+        ingredient: row.item.name,
+        needed: `${displayQty(row.required)} ${row.item.unit}`,
+        package: `${row.best?.packageQty} ${row.best?.packageUnit}${
+          row.best?.note ? ` · ${row.best.note}` : ""
+        }`,
+        quantity: `${row.best?.packages} container${
+          row.best?.packages === 1 ? "" : "s"
+        }`,
+        cost: row.best?.cost ?? 0,
+      })),
+    })),
+    unpriced: mealResults
+      .filter((row) => !row.best)
+      .map((row) => ({
+        ingredient: row.item.name,
+        needed: `${displayQty(row.required)} ${row.item.unit}`,
+      })),
+  };
+
+  const target = tabletronEventId
+    ? `&tabletronEvent=${encodeURIComponent(tabletronEventId)}`
+    : "";
+
+  return `http://localhost:3000/?foodotron=${encodeURIComponent(
+    JSON.stringify(packet),
+  )}${target}`;
+}, [
+  meal,
+  mealResults,
+  mealStores,
+  mealTotal,
+  plan.recipes,
+  tabletronEventId,
+]);
   function updateRecipe(fn:(r:Recipe)=>Recipe){setPlan(p=>({...p,recipes:p.recipes.map(r=>r.id===p.activeRecipeId?fn(r):r)}))}
   function save(){localStorage.setItem("foodotron-plan-v1",JSON.stringify(plan));setNotice("FOODOTRON PLAN SAVED")}
   function exportBackup(){const backup={format:"foodotron-backup",version:1,exportedAt:new Date().toISOString(),plan};const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download=`foodotron-backup-${new Date().toISOString().slice(0,10)}.json`;link.click();URL.revokeObjectURL(url);setNotice("BACKUP EXPORTED")}
